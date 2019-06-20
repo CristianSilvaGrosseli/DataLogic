@@ -2,6 +2,13 @@
 /**
 */
 #include "../include/t2fs.h"
+#include "../include/apidisk.h"
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+
+void initializeFreeBlocks();
+void writeInBlock(BYTE* buffer, WORD size, WORD blockAddress);
 
 /*-----------------------------------------------------------------------------
 Função:	Informa a identificação dos desenvolvedores do T2FS.
@@ -16,6 +23,8 @@ Função:	Formata logicamente o disco virtual t2fs_disk.dat para o sistema de
 		corresponde a um múltiplo de setores dados por sectors_per_block.
 -----------------------------------------------------------------------------*/
 int format2 (int sectors_per_block) {
+	initializeFreeBlocks();
+
 	return -1;
 }
 
@@ -141,4 +150,71 @@ int ln2 (char *linkname, char *filename) {
 	return -1;
 }
 
+void initializeFreeBlocks()
+{
+	BYTE mbr[256];
 
+	int success = read_sector(0, mbr);
+	printf("read_sector success: %d\n", success);
+
+	if(success != 0)
+	{
+		return;
+	}
+
+	WORD sectorSize = (mbr[3] << 8) + mbr[2];
+	printf("sector's size: %u\n", sectorSize);
+	
+	WORD beginAddress = (mbr[11] << 24) + (mbr[10] << 16) + (mbr[9] << 8) + (mbr[8] << 0);
+	WORD endAddress = (mbr[15] << 24) + (mbr[14] << 16) + (mbr[13] << 8) + (mbr[12] << 0);
+	WORD numSectors = endAddress - beginAddress + 1;
+	printf("First sector address: %d\n", beginAddress);
+	printf("Last sector address: %d\n", endAddress);
+	printf("Total sectors: %u\n", numSectors);
+
+	WORD sectorsPerBlock = 4;
+	WORD numLogicBlocks = numSectors / sectorsPerBlock;
+	printf("Sectors per logic block: %d\n", sectorsPerBlock); 
+	printf("Logic blocks's number: %d\n", numLogicBlocks);	
+
+	WORD wordsPerSector = sectorSize / sizeof(WORD);
+	WORD wordsPerBlock = wordsPerSector * sectorsPerBlock;
+	printf("Words per sector: %d\n", wordsPerSector);
+	printf("Words per block: %d\n", wordsPerBlock);
+
+	WORD vector[wordsPerBlock];
+	WORD vectorAddress = beginAddress;
+	WORD numFreeBlocks = numLogicBlocks - (numLogicBlocks / wordsPerBlock + 1);
+	printf("Initial free blocks's number: %d\n", numFreeBlocks);
+
+	WORD i;
+	WORD j;
+	WORD blockAddress = beginAddress;
+	for(i = 1, j = 1; i <= numFreeBlocks; i++, j++)
+	{
+		blockAddress += sectorsPerBlock;
+		vector[j-1] = blockAddress;
+		if(i == numFreeBlocks)
+		{
+			vector[j-1] = 0;
+			writeInBlock((BYTE*)vector, j*sizeof(WORD), vectorAddress);
+		}
+		else if(j == wordsPerBlock)
+		{
+			writeInBlock((BYTE*)vector, j*sizeof(WORD), vectorAddress);
+			vectorAddress = blockAddress;
+			j = 1;
+		}
+	}
+}
+
+void writeInBlock(BYTE* buffer, WORD size, WORD blockAddress)
+{
+	WORD numSectorsToWrite = (WORD) ceil((double)size / 256.0);
+	
+	WORD i;
+	for(i = 1; i <= numSectorsToWrite; i++)
+	{
+		write_sector(blockAddress + (i-1), buffer + (i-1) * 256);
+	}
+}
